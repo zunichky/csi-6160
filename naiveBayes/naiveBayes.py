@@ -1,95 +1,207 @@
-import os
-import re
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 10 13:01:12 2023
+
+@author: ab3935
+"""
 import csv
-import numpy as np
+import random
 
-# Data: https://archive.ics.uci.edu/ml/machine-learning-databases/00450/
-# Label: 0 = Objective, 1 = Subjective
-
-def parse_features(file_path):
+def ParseFeatures(file_path):
     features = {}
     with open(file_path) as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         next(reader)
         for row in reader:
-            features[row[0]] = article(0 if row[2] == "objective" else 1)
-
+            features[row[0]] = Article(0 if row[2] == "objective" else 1)
     return features
 
-def parse_articles(path):
+def GetWordsFromArticle(path):
     with open(path, encoding="ISO-8859-1") as f:
-        words = {}
+        words = []
         for row in f.read().split():
             # Remove all special characters
             word = ''.join(e for e in row if e.isalnum())
-            if word in words.keys():
-                words[word] += 1
-            else:
-               words[word] = 1 
+            words.append(word)
     return words
 
-def merge_totals(input, total):
-    for key in input:
-        if key in total.keys():
-            total[key] = total[key] + input[key]
-        else:
-            total[key] = input[key] 
-    return total
+def BagOfWords(wordarr):
+    wordCount = {}
+    
+    for word in wordarr:
+            if wordCount.get(word) != None:
+                wordCount[word] += 1
+            else:
+                wordCount[word] = 1
+    return wordCount
 
-def conditional_probability(words, total):
-    cp = {}
-    for key in words:
-        cp[key] = words[key] / total
-    return cp
-
-class article:
+class Article:
     def __init__(self, label):
          self.label = label
-         self.words = {}
-         self.word_count = -1
+         self.words = []
 
+class NaiveBayes:
+    wordCounts = {}
+    def __init__(self):
+        self.wordCounts = {}
 
-#data_set = parse_features("Data/features.cscv")
-DATAPATH = "Data"
+    def add_to_word_count(self,text,label):
+        listOfWords = BagOfWords(text)
+        if self.wordCounts.get(label) == None:
+            self.wordCounts[label] = listOfWords
+        else:
+            for word in listOfWords:
+                if self.wordCounts[label].get(word) == None:
+                    self.wordCounts[label][word] = listOfWords[word]
+                else:
+                    self.wordCounts[label][word] += listOfWords[word]
+        return
+    
+    def add_word_threshold(self, threshold):
+        items_below_threshold = []
+        for label in self.wordCounts.keys():
+            for word in self.wordCounts[label]:
+                if self.wordCounts[label][word] <= threshold:
+                     items_below_threshold.append([label, word])
+        
+                     
+        for item in items_below_threshold:    
+            del self.wordCounts[item[0]][item[1]]
 
-data = parse_features(os.path.join(DATAPATH,"features.csv"))
+    def predict_text(self,text):
+        wordarr = BagOfWords(text)
+        labels = list(self.wordCounts.keys())
+        probabilities = {}
+        
+        for label in labels:
+            probabilities[label] = 1
+            
+        #find highest probility
+        for word in wordarr:
+            for label in labels:
+                prob = self.calculate_probability(word,label)
+                if prob > 0:
+                    probabilities[label] *= prob
+        
+        highest = probabilities[labels[0]]
+        highestlabel = labels[0]
+        for label in labels:
+            #print(probabilities[label])
+            if probabilities[label] > highest:
+                #print("prev highest", highestlabel,'new:',label)
+                highest = probabilities[label]
+                highestlabel = label
+     
+        return highestlabel
+        
+    
+    def calculate_probability(self,word,lab):
+        labels = self.wordCounts.keys()
+        total = 0
+        labcount = self.wordCounts[lab].get(word,0)
+        for label in labels:
+            total += self.wordCounts[label].get(word,0)
+        #print(word," ",lab,":",labcount,total,labcount/total )
+        if (labcount == 0 or total == 0):
+            return 0
+        else:
+            return labcount/total
 
-for key in data:
-    data[key].words = parse_articles(os.path.join(DATAPATH, key + ".txt"))
-    #print(key + ": " + str(len(data[key].words)))
+class CrossValidationManager:
+    k = 0
+    data_length = 0
+    data_indexes = {}
+    current_index = -1
 
-# We now have all the data
+    def __init__(self, k_times, data, seed = 0):
+        self.k = k_times
+        self.data = data
+        if (seed > 0):
+            random.Random(seed).shuffle(self.data)
+        else:
+            random.shuffle(self.data)
+        self._get_indexes()
+    
+    def _get_indexes(self):
+        length = int(len(self.data) / self.k)
+        remainder = len(self.data) % self.k
+
+        if remainder > 0:
+            length += 1
+        else:
+            remainder = -1
+
+        for index in range(self.k):
+            if remainder > 0:
+                remainder -= 1
+            elif remainder == 0:
+                length -= 1
+                remainder = -1
+
+            if index == 0:
+                self.data_indexes[index] = [0,length]
+            else:
+                previous_end_index = self.data_indexes[index-1][1]
+                self.data_indexes[index] = [previous_end_index, previous_end_index + length]
+    
+    def data_available(self):
+        self.current_index += 1
+        if self.current_index == self.k:
+            return False
+        return True
+
+    def get_training_data(self):
+        data = []
+        for i in range(self.k):
+            if i == self.current_index:
+                continue
+            s = self.data_indexes[i][0]
+            e = self.data_indexes[i][1]
+            data += self.data[s:e]
+        return data
+    
+    def get_validation_data(self):
+        s = self.data_indexes[self.current_index][0]
+        e = self.data_indexes[self.current_index][1]
+        return self.data[s:e]
+
+# Data: https://archive.ics.uci.edu/ml/machine-learning-databases/00450/
 # Label: 0 = Objective, 1 = Subjective
 
-# Get count of words for each label
-objective_words = {}
-subjective_words = {}
+
+K_FOLD_COUNT = 5
+# Changing the seed will shuffle the data differently but consistently between runs
+# 0 will shuffle differently every run of the program
+SEED = 12
 
 
+data = ParseFeatures("Data/features.csv")
 for key in data:
-    count = 0
-    if data[key].label == 0:
-        objective_words = merge_totals( data[key].words, objective_words )
-    else:
-        subjective_words = merge_totals( data[key].words, subjective_words )
+    data[key].words = GetWordsFromArticle("Data/" + key + ".txt")
+ 
+dataManager = CrossValidationManager(K_FOLD_COUNT, list(data), seed=SEED)
 
+while dataManager.data_available():
+    n = NaiveBayes()
+    trainData = dataManager.get_training_data()
+    valData = dataManager.get_validation_data()
 
-objective_cp  = conditional_probability(objective_words, sum(objective_words.values()) )
-subjective_cp = conditional_probability(subjective_words, sum(subjective_words.values()) )
-#print({k: v for k, v in sorted(objective_cp.items(), key=lambda item: item[1])})
+    # Train
+    for article_name in trainData:
+        n.add_to_word_count(GetWordsFromArticle("Data/" + article_name + ".txt"), data[article_name].label)
+    
+    #n.add_word_threshold(2)
 
-'''
- objective_cp contains dict of each words probability 
- Ex) { 'to': 0.026924490143420035, 'the': 0.05395951020310619 }
+    #Test
+    validationData = {}
+    for article_name in valData:
+        validationData[article_name] = [GetWordsFromArticle("Data/" + article_name + ".txt"), data[article_name].label]
 
-  P6.pdf, slide 56/57
- Implement prediction
- Ex) input: ["firstround", "or", "players"]
- Calc prob
- obj_prob = objective_cp["firstround"] * objective_cp["or"] * objective_cp["players"]
- sub_prob = subjective_cp["firstround"] * subjective_cp["or"] * subjective_cp["players"]
- if obj_prob > sub_prob -> predict 0, else predict 1
-
-
- How do we handle if both predictions have a word that has a 0 probability (slide 58)? Assume we just ignore
- '''
+    correct = 0
+    for words in validationData.items():
+        prediction = n.predict_text(words[1][0])
+        
+        if prediction == words[1][1]:
+            correct += 1
+    print((correct / len(validationData)) * 100, end='')
+    print(" Correct: " + str(correct) + "/" + str(len(validationData)))
