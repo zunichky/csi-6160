@@ -25,6 +25,11 @@ def GetWordsFromArticle(path):
             words.append(word)
     return words
 
+class Article:
+    def __init__(self, label):
+         self.label = label
+         self.words = []
+
 def BagOfWords(wordarr):
     wordCount = {}
     
@@ -34,11 +39,6 @@ def BagOfWords(wordarr):
             else:
                 wordCount[word] = 1
     return wordCount
-
-class Article:
-    def __init__(self, label):
-         self.label = label
-         self.words = []
 
 class NaiveBayes:
     wordCounts = {}
